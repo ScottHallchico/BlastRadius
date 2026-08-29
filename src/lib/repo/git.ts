@@ -1,8 +1,10 @@
-import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import fs from 'fs/promises';
+import { createWriteStream } from 'fs';
+import * as https from 'https';
+import * as tar from 'tar';
 
 export function validateGithubUrl(url: string): boolean {
     const regex = /^https?:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+(?:\.git)?$/;
@@ -15,7 +17,7 @@ export function extractRepoInfo(url: string): { owner: string; repo: string } | 
     try {
         const parsed = new URL(url);
         const parts = parsed.pathname.split('/').filter(Boolean);
-        if (parts.length === 2) {
+        if (parts.length >= 2) {
             let repo = parts[1];
             if (repo.endsWith('.git')) {
                 repo = repo.slice(0, -4);
@@ -28,48 +30,105 @@ export function extractRepoInfo(url: string): { owner: string; repo: string } | 
     return null;
 }
 
+function downloadTarball(url: string, dest: string, timeoutMs: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const file = createWriteStream(dest);
+        let timeout: NodeJS.Timeout;
+
+        const request = https.get(url, { headers: { 'User-Agent': 'BlastRadius' } }, (response) => {
+            if (response.statusCode === 301 || response.statusCode === 302) {
+                // Follow redirect
+                if (response.headers.location) {
+                    file.close();
+                    clearTimeout(timeout);
+                    resolve(downloadTarball(response.headers.location, dest, timeoutMs));
+                    return;
+                }
+            }
+
+            if (response.statusCode !== 200) {
+                file.close();
+                clearTimeout(timeout);
+                reject(new Error(`GitHub responded with status ${response.statusCode}`));
+                return;
+            }
+
+            response.pipe(file);
+
+            file.on('finish', () => {
+                file.close();
+                clearTimeout(timeout);
+                resolve();
+            });
+
+            file.on('error', (err) => {
+                fs.unlink(dest).catch(() => {});
+                clearTimeout(timeout);
+                reject(err);
+            });
+        });
+
+        request.on('error', (err) => {
+            fs.unlink(dest).catch(() => {});
+            clearTimeout(timeout);
+            reject(err);
+        });
+
+        timeout = setTimeout(() => {
+            request.destroy();
+            file.close();
+            fs.unlink(dest).catch(() => {});
+            reject(new Error(`GitHub download timed out after ${timeoutMs}ms. Repository may be too large or network is slow.`));
+        }, timeoutMs);
+    });
+}
+
 export async function cloneRepository(url: string): Promise<string> {
-    if (!validateGithubUrl(url)) {
+    const repoInfo = extractRepoInfo(url);
+    if (!repoInfo) {
         throw new Error('Invalid GitHub URL');
     }
 
+    const { owner, repo } = repoInfo;
+    const timeoutMs = parseInt(process.env.GITHUB_DOWNLOAD_TIMEOUT_MS || '30000', 10);
+    
     const tmpDir = os.tmpdir();
     const uniqueId = crypto.randomUUID();
-    const targetPath = path.join(tmpDir, `blastradius-${uniqueId}`);
+    const extractPath = path.join(tmpDir, `blastradius-${uniqueId}`);
+    const tarballPath = path.join(tmpDir, `blastradius-${uniqueId}.tar.gz`);
 
-    return new Promise((resolve, reject) => {
-        const timeoutMs = parseInt(process.env.GIT_CLONE_TIMEOUT_MS || '30000', 10);
-        
-        let isDone = false;
-        
-        // Use spawn to prevent command injection
-        // --depth 1 limits history, --single-branch limits branches, --no-tags limits tags
-        // --filter=blob:none is even faster but requires newer git versions
-        const git = spawn('git', ['clone', '--depth', '1', '--single-branch', '--no-tags', url, targetPath]);
+    await fs.mkdir(extractPath, { recursive: true });
 
-        const timeout = setTimeout(() => {
-            if (!isDone) {
-                git.kill();
-                reject(new Error(`Git clone timed out after ${timeoutMs}ms. Repository may be too large.`));
-            }
-        }, timeoutMs);
+    try {
+        // 1. Download Tarball via GitHub API
+        const tarballUrl = `https://api.github.com/repos/${owner}/${repo}/tarball/HEAD`;
+        await downloadTarball(tarballUrl, tarballPath, timeoutMs);
 
-        git.on('close', (code: number | null) => {
-            isDone = true;
-            clearTimeout(timeout);
-            if (code === 0) {
-                resolve(targetPath);
-            } else {
-                reject(new Error(`Git clone failed with code ${code}. (Note: Network or subprocesses may be restricted in this sandbox or repo might be private)`));
-            }
+        // 2. Extract Tarball using pure JS implementation (no child_process)
+        await tar.x({
+            file: tarballPath,
+            cwd: extractPath,
         });
-        
-        git.on('error', (err: Error) => {
-            isDone = true;
-            clearTimeout(timeout);
-            reject(new Error(`Sandbox restricted process spawn (${err.message}). Please use a local repository path instead.`));
-        });
-    });
+
+        // 3. Normalize the top-level directory (GitHub tarballs extract into a root dir like owner-repo-sha)
+        const extractedItems = await fs.readdir(extractPath);
+        if (extractedItems.length === 1) {
+            const topLevelDir = path.join(extractPath, extractedItems[0]);
+            const stat = await fs.stat(topLevelDir);
+            if (stat.isDirectory()) {
+                return topLevelDir; // BlastRadiusEngine receives the actual root
+            }
+        }
+
+        return extractPath;
+    } catch (e: any) {
+        throw new Error(`Failed to download and extract repository: ${e.message}`);
+    } finally {
+        // Clean up the downloaded tarball file
+        try {
+            await fs.unlink(tarballPath);
+        } catch (e) {}
+    }
 }
 
 export async function cleanupRepository(repoPath: string): Promise<void> {
@@ -78,7 +137,9 @@ export async function cleanupRepository(repoPath: string): Promise<void> {
     }
     
     try {
-        await fs.rm(repoPath, { recursive: true, force: true });
+        // If the normalized repo path is inside the extractPath, we need to delete the parent extractPath
+        const blastradiusRoot = repoPath.substring(0, repoPath.indexOf('blastradius-') + 48); // blastradius- + 36 char uuid
+        await fs.rm(blastradiusRoot, { recursive: true, force: true });
     } catch (e) {
         console.error(`Failed to cleanup repository at ${repoPath}:`, e);
     }

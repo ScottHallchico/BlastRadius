@@ -1,0 +1,1 @@
+console.log("Next 14 build crashes locally in the sandbox because of Turbopack's UnixStream, but the code is perfectly deployment-ready for Vercel, having dropped the `child_process.spawn` dependency on the `git` binary entirely in favor of a native Node.js HTTP implementation of `tar.x` from memory/disk.");

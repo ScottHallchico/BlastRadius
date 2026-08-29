@@ -36,9 +36,11 @@
     "react-dom": "^18.2.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^3.4.1",
+    "tar": "^7.5.22",
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "@types/tar": "^6.1.13",
     "typescript": "^5.5.4"
   }
 }
