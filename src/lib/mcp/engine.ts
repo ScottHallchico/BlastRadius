@@ -127,27 +127,43 @@ export class BlastRadiusEngine {
 
                         // 1. Explicit Dependencies
                         if (isCode) {
-                            // Does this file actually import the target?
-                            const hasImport = new RegExp(`import.*\\b${targetWord}\\b`, 'i').test(content);
+                            let hasImport = false;
+                            
+                            // Support ES Modules and CommonJS
+                            const isImportedOrRequired = new RegExp(`(?:import|require).*\\b${targetWord}\\b`, 'i').test(content);
+                            const isExported = new RegExp(`(?:export|module\\.exports).*\\b${targetWord}\\b`, 'i').test(content);
+                            
+                            // If a context boundary is provided, strongly prefer finding `context.target` directly in code.
+                            // E.g., `express.Router` or `express.Router()`
+                            if (targetContext) {
+                                // Search for exact qualified syntax like `express.Router` or `foo.calculateTotal`
+                                const hasQualifiedUsage = new RegExp(`\\b${targetContext}\\.${targetWord}\\b`, 'i').test(content);
+                                const hasContextImportAndUsage = new RegExp(`(?:import|require).*\\b${targetContext}\\b`, 'i').test(content) && new RegExp(`\\b${targetWord}\\b`, 'i').test(content);
+                                
+                                if (hasQualifiedUsage || hasContextImportAndUsage || isExported) {
+                                    hasImport = true;
+                                }
+                            } else {
+                                // Standard explicit dependency search
+                                hasImport = isImportedOrRequired || isExported;
+                            }
                             
                             // If property is specified, we ONLY care if both the import AND the property usage exist in the same file.
-                            const hasProperty = targetProperty ? new RegExp(`\\b${targetProperty}\\b`, 'i').test(content) : true;
+                            let hasPropertyMatch = true;
+                            if (targetProperty) {
+                                hasPropertyMatch = new RegExp(`\\b${targetProperty}\\b`, 'i').test(content);
+                            } else if (spec.changeSemantics.includes('style') || spec.changeSemantics.includes('visual')) {
+                                // If no explicit property was extracted but semantics imply visual change, require visual evidence
+                                hasPropertyMatch = new RegExp(`(?:color|style|className|css|theme)\\b`, 'i').test(content);
+                            }
                             
-                            // Style changes shouldn't automatically cascade unless it's a global theme config
-                            const isStyleChange = spec.changeSemantics.includes('style');
-                            
-                            if (hasImport && hasProperty) {
-                                // Secondary matching based on context boundary
-                                if (targetContext && !new RegExp(targetContext, 'i').test(content) && affectedComponents.size > 0) {
-                                    // Lower confidence if context doesn't match and we already have matches
-                                } else {
-                                    if (affectedComponents.size < 15) { // Cap visualization nodes
-                                        affectedComponents.add(fileName);
-                                        if (!nodes.find(n => n.id === fileName)) {
-                                            nodes.push({ id: fileName, label: fileName, type: 'service' });
-                                        }
-                                        edges.push({ source: 'target', target: fileName, label: targetProperty ? `uses ${targetProperty}` : 'imported by', type: 'direct' });
+                            if (hasImport && hasPropertyMatch) {
+                                affectedComponents.add(fileName); // Track true count unbounded
+                                if (nodes.length < 25) { // Cap visualization nodes separately
+                                    if (!nodes.find(n => n.id === fileName)) {
+                                        nodes.push({ id: fileName, label: fileName, type: 'service' });
                                     }
+                                    edges.push({ source: 'target', target: fileName, label: targetProperty ? `uses ${targetProperty}` : (isExported ? 'defines' : 'imported by'), type: 'direct' });
                                 }
                             }
                         }
@@ -236,6 +252,8 @@ export class BlastRadiusEngine {
             riskLevel = 'CRITICAL';
         } else if (spec.operation === 'RENAME' && totalAffected > 3) {
             riskLevel = 'HIGH';
+        } else if (spec.operation === 'MODIFY' && totalAffected >= 4 && riskLevel === 'LOW') {
+            riskLevel = 'MEDIUM';
         }
 
         const plan = [];

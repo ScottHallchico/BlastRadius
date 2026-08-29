@@ -153,6 +153,18 @@ export function parseChangeDescription(description: string): ChangeSpecification
         return spec;
     }
 
+    // MODIFY ... PROPERTY
+    const modifyGeneralPropRegex = new RegExp(`(?:modify|change|update)\\s+(?:the\\s+)?${ident}\\s+(?:.*?)([a-zA-Z0-9_-]+)\\s+(?:property|handler|method|attribute)`, 'i');
+    const modifyGeneralPropMatch = desc.match(modifyGeneralPropRegex);
+    if (modifyGeneralPropMatch) {
+        spec.operation = 'MODIFY';
+        applyTarget(modifyGeneralPropMatch[1]);
+        if (modifyGeneralPropMatch[2] !== 'the' && modifyGeneralPropMatch[2] !== 'component') {
+            spec.property = modifyGeneralPropMatch[2];
+        }
+        return spec;
+    }
+
     // MODIFY TYPE/PROP
     const modifyTypeRegex = /(?:modify|change|update).*?\b([A-Z][a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*(?:\(\))?)\b.*?\b([a-zA-Z0-9_]+)\b\s*(?:type|prop|handler)/;
     const modifyTypeMatch = desc.match(modifyTypeRegex);
