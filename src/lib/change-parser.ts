@@ -20,8 +20,9 @@ export function parseChangeDescription(description: string): ChangeSpecification
         changeSemantics: [],
     };
 
-    // Determine Type dynamically later after we extract the target name, unless obvious
-    const determineType = (name: string, desc: string) => {
+    const determineType = (name: string, desc: string, hasParens: boolean = false) => {
+        if (hasParens) return 'function';
+        
         const lowerName = name.toLowerCase();
         const lowerDesc = desc.toLowerCase();
         
@@ -40,6 +41,29 @@ export function parseChangeDescription(description: string): ChangeSpecification
         return 'unknown';
     };
 
+    const applyTarget = (rawName: string) => {
+        const hasParens = rawName.endsWith('()');
+        const clean = rawName.replace(/\(\)$/, '');
+        
+        // If it looks like a file extension rather than a member expression, treat it as a single file target
+        if (clean.match(/\.(js|ts|tsx|jsx|json|md|html|css|scss|sass|less|xml|yml|yaml|go|py|rs|c|cpp|h|hpp|rb|php|swift|kt|java|class)$/i)) {
+            spec.target.name = clean;
+            spec.target.type = 'unknown'; // don't try to infer function from parens on a file
+            return;
+        }
+
+        if (clean.includes('.')) {
+            const parts = clean.split('.');
+            spec.target.name = parts.pop()!;
+            if (!spec.contextBoundary) {
+                spec.contextBoundary = parts.pop()!;
+            }
+        } else {
+            spec.target.name = clean;
+        }
+        spec.target.type = determineType(spec.target.name, desc, hasParens || desc.includes(`${spec.target.name}()`));
+    };
+
     // 2. Semantics mapping
     if (lowerDesc.includes('async')) spec.changeSemantics.push('async');
     if (lowerDesc.includes('handler') || lowerDesc.includes('prop')) spec.changeSemantics.push('props', 'handler');
@@ -50,106 +74,121 @@ export function parseChangeDescription(description: string): ChangeSpecification
     if (lowerDesc.includes('doc') || lowerDesc.includes('readme') || lowerDesc.includes('documentation')) spec.changeSemantics.push('documentation');
 
     // 3. Regex Patterns for Operations
-    
-    // RENAME: "Rename calculateTotal to computeInvoiceTotal" or "Rename the calculateTotal helper to computeInvoiceTotal"
-    const renameRegex = /(?:rename|change name of)\s+(?:the\s+)?(?:a\s+)?(?:private\s+)?([\w-]+)(?:\s+(?:helper|function|component|service|module))?\s+to\s+([\w-]+)/i;
+    const ident = `([a-zA-Z0-9_-]+(?:\\.[a-zA-Z0-9_-]+)*(?:\\(\\))?)`;
+
+    // QUALIFIED MEMBER EXPRESSION MODIFY
+    const memberModifyRegex = new RegExp(`(?:modify|change|update)\\s+(?:the\\s+)?${ident}(?:.*?change(?: its)?\\s+([a-zA-Z0-9_-]+)\\s+(?:behavior|handler|prop|type|logic|action))?`, 'i');
+    const memberModifyMatch = desc.match(memberModifyRegex);
+    if (memberModifyMatch) {
+        spec.operation = 'MODIFY';
+        applyTarget(memberModifyMatch[1]);
+        if (memberModifyMatch[2]) {
+            spec.property = memberModifyMatch[2];
+        }
+        
+        // Safety check: If it was a file extension, we don't treat the regex property match as valid unless it explicitly says 'property' or 'handler'
+        // For example: "Modify router.js to change its middleware behavior" shouldn't flag "middleware" as a property
+        if (memberModifyMatch[1].match(/\.(js|ts|tsx|jsx|json|md|html|css|scss|sass|less|xml|yml|yaml|go|py|rs|c|cpp|h|hpp|rb|php|swift|kt|java|class)$/i)) {
+            spec.property = undefined;
+        }
+        
+        return spec;
+    }
+
+    // RENAME
+    const renameRegex = new RegExp(`(?:rename|change name of)\\s+(?:a\\s+)?(?:private\\s+)?(?:the\\s+)?${ident}(?:\\s+(?:helper|function|component|service|module))?\\s+to\\s+${ident}`, 'i');
     const renameMatch = desc.match(renameRegex);
     if (renameMatch) {
         spec.operation = 'RENAME';
-        spec.target.name = renameMatch[1];
-        spec.target.type = determineType(spec.target.name, desc);
-        spec.replacement = renameMatch[2];
+        applyTarget(renameMatch[1]);
+        
+        let rep = renameMatch[2].replace(/\(\)$/, '');
+        if (rep.includes('.')) {
+            rep = rep.split('.').pop()!;
+        }
+        spec.replacement = rep;
+        
         spec.changeSemantics.push('refactor', 'naming');
         return spec;
     }
     
-    const renameTargetOnly = /(?:rename|change name of)\s+(?:a\s+)?(?:private\s+)?(?:the\s+)?([\w-]+)(?:\s+(?:helper|function|component|service|module))?/i;
+    const renameTargetOnly = new RegExp(`(?:rename|change name of)\\s+(?:a\\s+)?(?:private\\s+)?(?:the\\s+)?${ident}(?:\\s+(?:helper|function|component|service|module))?`, 'i');
     const renameMatchOnly = desc.match(renameTargetOnly);
     if (renameMatchOnly && !renameMatch) {
         spec.operation = 'RENAME';
-        spec.target.name = renameMatchOnly[1];
-        spec.target.type = determineType(spec.target.name, desc);
+        applyTarget(renameMatchOnly[1]);
         spec.changeSemantics.push('refactor', 'naming');
         return spec;
     }
 
-    // REPLACE: "Replace the Redis event publisher in OrderService with Kafka"
-    // "Replace Redis with Kafka"
-    const replaceRegex = /(?:replace|swap)\s+(?:the\s+)?([\w-]+)(?:.*?)?(?:in\s+([\w-]+)\s+)?with\s+([\w-]+)/i;
+    // REPLACE
+    const replaceRegex = new RegExp(`(?:replace|swap)\\s+(?:the\\s+)?${ident}(?:.*?)?(?:in\\s+([a-zA-Z0-9_-]+)\\s+)?with\\s+${ident}`, 'i');
     const replaceMatch = desc.match(replaceRegex);
     if (replaceMatch) {
         spec.operation = 'REPLACE';
-        spec.target.name = replaceMatch[1];
-        spec.target.type = determineType(spec.target.name, desc);
+        applyTarget(replaceMatch[1]);
         if (replaceMatch[2] && replaceMatch[2] !== 'with') {
             spec.contextBoundary = replaceMatch[2];
         }
-        spec.replacement = replaceMatch[3];
+        spec.replacement = replaceMatch[3].replace(/\(\)$/, '');
         return spec;
     }
 
-    // REMOVE: "Remove the legacy UserAvatar component"
-    const removeRegex = /(?:remove|delete|drop)\s+(?:the\s+)?(?:legacy\s+)?([\w-]+)/i;
+    // REMOVE
+    const removeRegex = new RegExp(`(?:remove|delete|drop)\\s+(?:the\\s+)?(?:legacy\\s+)?${ident}`, 'i');
     const removeMatch = desc.match(removeRegex);
     if (removeMatch) {
         spec.operation = 'REMOVE';
-        spec.target.name = removeMatch[1];
-        spec.target.type = determineType(spec.target.name, desc);
+        applyTarget(removeMatch[1]);
         return spec;
     }
 
-    // MODIFY PROPERTY A's B: "Modify the Button component's onClick handler"
-    const modifyPropRegex = /(?:modify|change|update)\s+(?:the\s+)?([\w-]+)(?:.*?)'s\s+([\w-]+)/i;
+    // MODIFY PROPERTY A's B
+    const modifyPropRegex = new RegExp(`(?:modify|change|update)\\s+(?:the\\s+)?${ident}(?:.*?)'s\\s+([a-zA-Z0-9_-]+)`, 'i');
     const modifyPropMatch = desc.match(modifyPropRegex);
     if (modifyPropMatch) {
         spec.operation = 'MODIFY';
-        spec.target.name = modifyPropMatch[1];
-        spec.target.type = determineType(spec.target.name, desc);
+        applyTarget(modifyPropMatch[1]);
         spec.property = modifyPropMatch[2];
         return spec;
     }
 
-    // MODIFY TYPE/PROP: "Modify the Button component API so that the existing Button component changes the type of its onClick prop."
-    // Or "Change the Button onClick type"
-    const modifyTypeRegex = /(?:modify|change|update).*?\b([A-Z][a-zA-Z0-9_]+)\b.*?\b([a-zA-Z0-9_]+)\b\s*(?:type|prop|handler)/;
+    // MODIFY TYPE/PROP
+    const modifyTypeRegex = /(?:modify|change|update).*?\b([A-Z][a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*(?:\(\))?)\b.*?\b([a-zA-Z0-9_]+)\b\s*(?:type|prop|handler)/;
     const modifyTypeMatch = desc.match(modifyTypeRegex);
     if (modifyTypeMatch && modifyTypeMatch[1] !== 'API') {
         spec.operation = 'MODIFY';
-        spec.target.name = modifyTypeMatch[1];
-        spec.target.type = determineType(spec.target.name, desc);
+        applyTarget(modifyTypeMatch[1]);
         spec.property = modifyTypeMatch[2];
         return spec;
     }
 
-    // CONFIG/INCREASE: "Increase the default timeout in the Axios API client to 10 seconds"
-    const configRegex = /(?:increase|decrease|change|modify|set)\s+(?:the\s+)?(?:default\s+)?([\w-]+)\s+(?:in|for|on)(?:\s+the)?\s+([\w-]+)\s+(?:api\s+client|service|component)?\s+to\s+(.+)/i;
+    // CONFIG/INCREASE
+    const configRegex = new RegExp(`(?:increase|decrease|change|modify|set)\\s+(?:the\\s+)?(?:default\\s+)?([a-zA-Z0-9_-]+)\\s+(?:in|for|on)(?:\\s+the)?\\s+${ident}\\s+(?:api\\s+client|service|component)?\\s+to\\s+(.+)`, 'i');
     const configMatch = desc.match(configRegex);
     if (configMatch) {
         spec.operation = 'MODIFY';
         spec.property = configMatch[1];
-        spec.target.name = configMatch[2];
-        spec.target.type = determineType(spec.target.name, desc);
+        applyTarget(configMatch[2]);
         spec.replacement = configMatch[3].replace(/\.$/, '');
         return spec;
     }
 
-    // ADD: "Add authentication middleware to the API"
-    const addRegex = /(?:add|insert|create)\s+(?:the\s+)?([\w-]+)(?:.*?)?(?:to|in)\s+([\w-]+)/i;
+    // ADD
+    const addRegex = new RegExp(`(?:add|insert|create)\\s+(?:the\\s+)?${ident}(?:.*?)?(?:to|in)\\s+([a-zA-Z0-9_-]+)`, 'i');
     const addMatch = desc.match(addRegex);
     if (addMatch) {
         spec.operation = 'ADD';
-        spec.target.name = addMatch[1];
-        spec.target.type = determineType(spec.target.name, desc);
+        applyTarget(addMatch[1]);
         spec.contextBoundary = addMatch[2];
         return spec;
     }
 
     // FALLBACK
-    const words = desc.replace(/[^a-zA-Z0-9 -]/g, '').split(' ');
+    const words = desc.replace(/[^a-zA-Z0-9 _.-]/g, '').split(' ');
     const stopWords = ['replace', 'change', 'update', 'modify', 'delete', 'remove', 'with', 'component', 'openui', 'the', 'and', 'in', 'to', 'for', 'a', 'an'];
     const targetWord = words.find(w => w.length > 3 && !stopWords.includes(w.toLowerCase())) || words[0];
     
-    spec.target.name = targetWord;
-    spec.target.type = determineType(spec.target.name, desc);
+    applyTarget(targetWord);
     return spec;
 }
