@@ -1,5 +1,6 @@
 import './globals.css'
 import type { Metadata } from 'next'
+import Navigation from '@/components/Navigation'
 
 export const metadata: Metadata = {
   title: 'BlastRadius',
@@ -12,8 +13,11 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" className="scroll-smooth">
+      <body className="bg-[#050505] text-white">
+        <Navigation />
+        {children}
+      </body>
     </html>
   )
 }

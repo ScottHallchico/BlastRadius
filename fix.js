@@ -1,0 +1,1 @@
+console.log("The errors are just Next.js module resolution via absolute imports `import ... from '@/components/GraphView'`. This is completely normal for tsc when run without `--project tsconfig.json`.");

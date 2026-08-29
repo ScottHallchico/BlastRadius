@@ -6,10 +6,13 @@ export class BlastRadiusEngine {
         this.repoPath = repoPath;
     }
     async analyze(changeDesc) {
+        const t0 = Date.now();
         const evidence = [];
         let implicitCouplings = 0;
         let invariantsViolated = 0;
         const affectedComponents = new Set();
+        let filesScannedCount = 0;
+        let dirsScannedCount = 0;
         const nodes = [
             { id: 'change', label: 'Proposed Change', type: 'change' }
         ];
@@ -38,15 +41,19 @@ export class BlastRadiusEngine {
                 let allFiles = [];
                 for (const d of scanDirs) {
                     try {
-                        const files = await this.readDirRecursively(d, 500); // add limit back
+                        const { files, dirsCount } = await this.readDirRecursivelyWithStats(d, 500); // add limit back
                         allFiles = allFiles.concat(files);
+                        dirsScannedCount += dirsCount;
                     }
                     catch (e) { }
                 }
                 // If nothing found in standard dirs, scan the root repo path but limit it
                 if (allFiles.length === 0) {
-                    allFiles = await this.readDirRecursively(this.repoPath, 300);
+                    const { files, dirsCount } = await this.readDirRecursivelyWithStats(this.repoPath, 300);
+                    allFiles = files;
+                    dirsScannedCount += dirsCount;
                 }
+                filesScannedCount = allFiles.length;
                 for (const file of allFiles) {
                     const ext = path.extname(file);
                     const isDoc = ext === '.md' || ext === '.txt';
@@ -139,10 +146,16 @@ export class BlastRadiusEngine {
                 componentsAffected: Math.max(1, totalAffected - implicitCouplings),
                 primaryConcern: "Standard static analysis only sees direct imports."
             },
-            graph: { nodes, edges }
+            graph: { nodes, edges },
+            metadata: {
+                filesScanned: filesScannedCount,
+                dirsScanned: dirsScannedCount,
+                analysisTimeMs: Date.now() - t0
+            }
         };
     }
     async runDemoScenario(changeDesc) {
+        const t0 = Date.now();
         // Original Demo Logic
         const evidence = [];
         let implicitCouplings = 0;
@@ -234,11 +247,21 @@ export class BlastRadiusEngine {
                 componentsAffected: 1,
                 primaryConcern: "Standard static analysis sees no dependents. OrderService appears safe to modify."
             },
-            graph: { nodes, edges }
+            graph: { nodes, edges },
+            metadata: {
+                filesScanned: srcFiles.length + docFiles.length,
+                dirsScanned: 2,
+                analysisTimeMs: Date.now() - t0
+            }
         };
     }
     async readDirRecursively(dir, maxFiles = 1000) {
+        const { files } = await this.readDirRecursivelyWithStats(dir, maxFiles);
+        return files;
+    }
+    async readDirRecursivelyWithStats(dir, maxFiles = 1000) {
         let results = [];
+        let dirsCount = 1;
         try {
             const list = await fs.readdir(dir);
             for (const file of list) {
@@ -251,7 +274,9 @@ export class BlastRadiusEngine {
                 const filePath = path.join(dir, file);
                 const stat = await fs.stat(filePath);
                 if (stat && stat.isDirectory()) {
-                    results = results.concat(await this.readDirRecursively(filePath, maxFiles - results.length));
+                    const sub = await this.readDirRecursivelyWithStats(filePath, maxFiles - results.length);
+                    results = results.concat(sub.files);
+                    dirsCount += sub.dirsCount;
                 }
                 else {
                     results.push(filePath);
@@ -261,6 +286,6 @@ export class BlastRadiusEngine {
         catch {
             // Ignore missing dirs
         }
-        return results;
+        return { files: results, dirsCount };
     }
 }

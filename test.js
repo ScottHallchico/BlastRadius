@@ -1,3 +1,2 @@
-console.log("Checking if there are any specific sockets configured");
-const fs = require('fs');
-console.log(fs.readdirSync('/run'));
+const { validateGithubUrl } = require('./src/lib/repo/git.js');
+console.log("Validate tests");

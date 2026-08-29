@@ -41,16 +41,24 @@ export interface AnalysisResult {
         nodes: GraphNode[];
         edges: GraphEdge[];
     };
+    metadata: {
+        filesScanned: number;
+        dirsScanned: number;
+        analysisTimeMs: number;
+    };
 }
 
 export class BlastRadiusEngine {
     constructor(private repoPath: string) {}
 
     async analyze(changeDesc: string): Promise<AnalysisResult> {
+        const t0 = Date.now();
         const evidence: AnalysisFinding[] = [];
         let implicitCouplings = 0;
         let invariantsViolated = 0;
         const affectedComponents = new Set<string>();
+        let filesScannedCount = 0;
+        let dirsScannedCount = 0;
         
         const nodes: GraphNode[] = [
             { id: 'change', label: 'Proposed Change', type: 'change' }
@@ -86,15 +94,20 @@ export class BlastRadiusEngine {
                 let allFiles: string[] = [];
                 for (const d of scanDirs) {
                     try {
-                        const files = await this.readDirRecursively(d, 500); // add limit back
+                        const { files, dirsCount } = await this.readDirRecursivelyWithStats(d, 500); // add limit back
                         allFiles = allFiles.concat(files);
+                        dirsScannedCount += dirsCount;
                     } catch(e) {}
                 }
 
                 // If nothing found in standard dirs, scan the root repo path but limit it
                 if (allFiles.length === 0) {
-                     allFiles = await this.readDirRecursively(this.repoPath, 300);
+                     const { files, dirsCount } = await this.readDirRecursivelyWithStats(this.repoPath, 300);
+                     allFiles = files;
+                     dirsScannedCount += dirsCount;
                 }
+
+                filesScannedCount = allFiles.length;
 
                 for (const file of allFiles) {
                     const ext = path.extname(file);
@@ -193,11 +206,17 @@ export class BlastRadiusEngine {
                 componentsAffected: Math.max(1, totalAffected - implicitCouplings),
                 primaryConcern: "Standard static analysis only sees direct imports."
             },
-            graph: { nodes, edges }
+            graph: { nodes, edges },
+            metadata: {
+                filesScanned: filesScannedCount,
+                dirsScanned: dirsScannedCount,
+                analysisTimeMs: Date.now() - t0
+            }
         };
     }
 
     private async runDemoScenario(changeDesc: string): Promise<AnalysisResult> {
+        const t0 = Date.now();
         // Original Demo Logic
         const evidence: AnalysisFinding[] = [];
         let implicitCouplings = 0;
@@ -303,12 +322,23 @@ export class BlastRadiusEngine {
                 componentsAffected: 1,
                 primaryConcern: "Standard static analysis sees no dependents. OrderService appears safe to modify."
             },
-            graph: { nodes, edges }
+            graph: { nodes, edges },
+            metadata: {
+                filesScanned: srcFiles.length + docFiles.length,
+                dirsScanned: 2,
+                analysisTimeMs: Date.now() - t0
+            }
         };
     }
 
     private async readDirRecursively(dir: string, maxFiles = 1000): Promise<string[]> {
+        const { files } = await this.readDirRecursivelyWithStats(dir, maxFiles);
+        return files;
+    }
+
+    private async readDirRecursivelyWithStats(dir: string, maxFiles = 1000): Promise<{ files: string[], dirsCount: number }> {
         let results: string[] = [];
+        let dirsCount = 1;
         try {
             const list = await fs.readdir(dir);
             for (const file of list) {
@@ -323,7 +353,9 @@ export class BlastRadiusEngine {
                 const stat = await fs.stat(filePath);
                 
                 if (stat && stat.isDirectory()) {
-                    results = results.concat(await this.readDirRecursively(filePath, maxFiles - results.length));
+                    const sub = await this.readDirRecursivelyWithStats(filePath, maxFiles - results.length);
+                    results = results.concat(sub.files);
+                    dirsCount += sub.dirsCount;
                 } else {
                     results.push(filePath);
                 }
@@ -331,6 +363,6 @@ export class BlastRadiusEngine {
         } catch {
             // Ignore missing dirs
         }
-        return results;
+        return { files: results, dirsCount };
     }
 }
