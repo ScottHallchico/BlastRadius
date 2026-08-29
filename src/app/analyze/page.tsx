@@ -47,7 +47,11 @@ export default function Home() {
         setAnalysisStage(s => Math.min(s + 1, 5));
       }, 800);
 
-      const res = await fetch('/api/analyze', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL 
+        ? `${process.env.NEXT_PUBLIC_API_URL}/api/analyze` 
+        : '/api/analyze';
+
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ changeDescription: changeDesc, repoUrl })
