@@ -181,6 +181,47 @@ export default function Home() {
               </div>
             )}
 
+            {/* Understood Change */}
+            {result && result.changeSpecification && (
+              <motion.div 
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-[#0f0f0f] border border-gray-800 rounded-lg shadow-2xl overflow-hidden mb-6"
+              >
+                <div className="bg-[#141414] border-b border-gray-800 p-4">
+                  <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider flex items-center gap-2">
+                    <Search size={16}/> Understood Change
+                  </h3>
+                </div>
+                <div className="p-4 text-sm font-mono space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-red-950/50 text-red-400 border border-red-900/50 px-2 py-0.5 rounded text-xs font-bold">
+                      {result.changeSpecification.operation}
+                    </span>
+                    {result.changeSpecification.target.type !== 'unknown' && (
+                      <span className="text-gray-500 text-xs">({result.changeSpecification.target.type})</span>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <div className="text-white font-bold">{result.changeSpecification.target.name}</div>
+                    {result.changeSpecification.property && (
+                      <div className="text-gray-400 text-xs mt-1">Property: <span className="text-blue-400">{result.changeSpecification.property}</span></div>
+                    )}
+                    {result.changeSpecification.replacement && (
+                      <div className="text-gray-400 text-xs mt-1">→ <span className="text-green-400">{result.changeSpecification.replacement}</span></div>
+                    )}
+                  </div>
+                  
+                  {result.changeSpecification.contextBoundary && (
+                    <div className="text-xs text-gray-500 pt-2 border-t border-gray-800">
+                      Context: <span className="text-gray-300">{result.changeSpecification.contextBoundary}</span>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
             {/* Baseline comparison shown when result is active */}
             {result && result.baseline && (
               <motion.div 
