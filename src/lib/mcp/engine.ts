@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { parseChangeDescription, ChangeSpecification } from '../change-parser.js';
+import { parseChangeDescription, ChangeSpecification } from '../change-parser';
 
 export interface AnalysisFinding {
     type: 'dependency' | 'runtime' | 'history' | 'invariant';
