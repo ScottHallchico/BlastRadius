@@ -5,6 +5,7 @@ import { ArrowRight, Database, FileText, CheckCircle2, AlertTriangle, Play, Box,
 import dynamic from 'next/dynamic';
 
 const GraphView = dynamic(() => import('@/components/GraphView'), { ssr: false });
+const ColorBends = dynamic(() => import('@/components/ColorBends'), { ssr: false });
 
 export default function LandingPage() {
   const exampleGraphData = {
@@ -29,22 +30,44 @@ export default function LandingPage() {
     <main className="flex flex-col min-h-screen font-mono text-gray-200">
       {/* 1. HERO */}
       <section className="relative pt-24 pb-32 px-4 sm:px-6 lg:px-12 flex flex-col items-center text-center overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,#111_0%,#050505_100%)] -z-10"></div>
+        {/* ColorBends Background */}
+        <ColorBends 
+          colors={["#ef4444", "#8a5cff", "#00ffd1"]}
+          rotation={90}
+          speed={0.2}
+          scale={1}
+          frequency={1}
+          warpStrength={1}
+          mouseInfluence={1}
+          noise={0.15}
+          parallax={0.5}
+          iterations={1}
+          intensity={1.5}
+          bandWidth={6}
+          transparent={true}
+          autoRotate={0}
+          className="-z-20 opacity-80"
+        />
+        
+        {/* Subtle Dark Overlay to ensure readability */}
+        <div className="absolute inset-0 bg-black/60 -z-10"></div>
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#050505_100%)] -z-10"></div>
+        
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#1a1a1a_1px,transparent_1px),linear-gradient(to_bottom,#1a1a1a_1px,transparent_1px)] bg-[size:40px_40px] -z-10 [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-30"></div>
 
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-800 bg-[#0a0a0a] text-xs font-semibold text-gray-400 mb-8 tracking-widest">
+        <div className="relative z-10 inline-flex items-center gap-2 px-3 py-1 rounded-full border border-gray-800 bg-[#0a0a0a]/80 backdrop-blur-sm text-xs font-semibold text-gray-400 mb-8 tracking-widest">
           <Activity size={12} className="text-red-500" /> LATENTFORCE ENGINE
         </div>
         
-        <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white mb-6 max-w-4xl">
+        <h1 className="relative z-10 text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white mb-6 max-w-4xl drop-shadow-2xl">
           Know what your change can <span className="text-red-500">break</span> before you ship it.
         </h1>
         
-        <p className="text-lg md:text-xl text-gray-400 mb-10 max-w-3xl leading-relaxed">
+        <p className="relative z-10 text-lg md:text-xl text-gray-300 mb-10 max-w-3xl leading-relaxed drop-shadow-md">
           Analyze real software repositories to discover the components, dependencies, runtime couplings, and architectural constraints that a change could affect.
         </p>
         
-        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+        <div className="relative z-10 flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
           <Link href="/analyze" className="bg-white text-black font-bold py-3 px-8 rounded flex items-center justify-center gap-2 hover:bg-gray-200 transition-colors">
             Analyze a Repository <ArrowRight size={18} />
           </Link>
