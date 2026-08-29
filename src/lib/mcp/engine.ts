@@ -86,31 +86,10 @@ export class BlastRadiusEngine {
                 nodes.push({ id: 'target', label: targetWord, type: 'service' });
                 edges.push({ source: 'change', target: 'target', label: 'modifies', type: 'direct' });
 
-                // Try to find packages or src dir
-                const scanDirs = [
-                    path.join(this.repoPath, 'src'),
-                    path.join(this.repoPath, 'packages'),
-                    path.join(this.repoPath, 'docs'),
-                    path.join(this.repoPath, 'lib'),
-                    path.join(this.repoPath, 'components')
-                ];
-
-                let allFiles: string[] = [];
-                for (const d of scanDirs) {
-                    try {
-                        const { files, dirsCount } = await this.readDirRecursivelyWithStats(d, 500); // add limit back
-                        allFiles = allFiles.concat(files);
-                        dirsScannedCount += dirsCount;
-                    } catch(e) {}
-                }
-
-                // If nothing found in standard dirs, scan the root repo path but limit it
-                if (allFiles.length === 0) {
-                     const { files, dirsCount } = await this.readDirRecursivelyWithStats(this.repoPath, 300);
-                     allFiles = files;
-                     dirsScannedCount += dirsCount;
-                }
-
+                // Scan the entire repository root (the readDirRecursivelyWithStats function handles safely ignoring node_modules, .git, etc.)
+                const { files, dirsCount } = await this.readDirRecursivelyWithStats(this.repoPath, 2500); 
+                const allFiles = files;
+                dirsScannedCount += dirsCount;
                 filesScannedCount = allFiles.length;
 
                 for (const file of allFiles) {
