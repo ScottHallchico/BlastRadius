@@ -4,11 +4,14 @@ import { Box, Play, AlertTriangle, ShieldCheck, Activity, Search, RefreshCw, Lay
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Home() {
+  const [repoUrl, setRepoUrl] = useState('');
   const [changeDesc, setChangeDesc] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const setDemoQuery = (query: string) => {
+    setRepoUrl('');
     setChangeDesc(query);
   };
 
@@ -16,21 +19,30 @@ export default function Home() {
     if (!changeDesc) return;
     setAnalyzing(true);
     setResult(null);
+    setError(null);
     
     try {
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ changeDescription: changeDesc })
+        body: JSON.stringify({ changeDescription: changeDesc, repoUrl })
       });
       const data = await res.json();
-      setResult(data);
-    } catch (e) {
+      
+      if (!res.ok) {
+        setError(data.error || 'Failed to analyze repository');
+      } else {
+        setResult(data);
+      }
+    } catch (e: any) {
       console.error(e);
+      setError(e.message || 'Network error occurred');
     } finally {
       setAnalyzing(false);
     }
   };
+
+  const isDemoActive = !repoUrl || repoUrl.trim() === '';
 
   return (
     <main className="min-h-screen bg-[#050505] text-gray-200 font-mono p-4 sm:p-6 lg:p-12 flex flex-col items-center">
@@ -43,9 +55,15 @@ export default function Home() {
             <p className="mt-2 text-gray-400 text-sm">Know what your change can break before you ship it.</p>
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-xs bg-gray-900 border border-gray-800 px-3 py-1.5 rounded text-gray-400 font-sans flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> Demo Repo Active
-            </span>
+            {isDemoActive ? (
+              <span className="text-xs bg-gray-900 border border-gray-800 px-3 py-1.5 rounded text-gray-400 font-sans flex items-center gap-2 transition-colors">
+                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> Demo Repo Active
+              </span>
+            ) : (
+              <span className="text-xs bg-blue-950 border border-blue-900 px-3 py-1.5 rounded text-blue-200 font-sans flex items-center gap-2 transition-colors">
+                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span> Live Repo Active
+              </span>
+            )}
           </div>
         </header>
 
@@ -53,6 +71,18 @@ export default function Home() {
           <div className="lg:col-span-4 space-y-6">
             <div className="bg-[#0f0f0f] border border-gray-800 p-5 rounded-lg shadow-2xl">
               <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Layers size={16}/> Target Repository
+              </h2>
+              
+              <input 
+                type="text"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                placeholder="GitHub URL or local path (e.g. /home/boypablo/openui)"
+                className="w-full bg-[#141414] border border-gray-700 rounded p-3 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none placeholder:text-gray-600 transition-all text-white mb-6"
+              />
+
+              <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2 border-t border-gray-800 pt-6">
                 <Search size={16}/> Proposed Change
               </h2>
               
@@ -64,7 +94,7 @@ export default function Home() {
               />
 
               <div className="mt-4">
-                <span className="text-xs text-gray-500 uppercase tracking-wider font-sans">Try Demo Scenarios:</span>
+                <span className="text-xs text-gray-500 uppercase tracking-wider font-sans">Or Try Demo Scenario:</span>
                 <div className="mt-2 space-y-2">
                   <button 
                     onClick={() => setDemoQuery("Replace the Redis event publisher in OrderService with Kafka.")}
@@ -81,9 +111,16 @@ export default function Home() {
                 className="mt-6 w-full bg-white text-black font-semibold py-2.5 px-4 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
               >
                 {analyzing ? <RefreshCw className="animate-spin" size={18} /> : <Play size={18} />}
-                {analyzing ? 'Tracing Blast Radius...' : 'Analyze Blast Radius'}
+                {analyzing ? (isDemoActive ? 'Tracing Blast Radius...' : 'Acquiring & Tracing...') : 'Analyze Blast Radius'}
               </button>
             </div>
+
+            {error && (
+              <div className="bg-red-950/50 border border-red-900 text-red-200 p-4 rounded-lg mb-6 flex items-start gap-3">
+                <AlertTriangle size={20} className="mt-0.5 shrink-0" />
+                <div className="text-sm font-sans">{error}</div>
+              </div>
+            )}
 
             {/* Baseline comparison shown when result is active */}
             {result && result.baseline && (
@@ -165,44 +202,53 @@ export default function Home() {
                 </div>
 
                 {/* Graph Visualization */}
-                {result.graph && (
+                {result.graph && result.graph.nodes && (
                   <div className="p-8 border-b border-gray-800 bg-[#0a0a0a] min-h-[250px] flex items-center justify-center relative overflow-hidden">
                     <div className="absolute inset-0 bg-[linear-gradient(to_right,#111_1px,transparent_1px),linear-gradient(to_bottom,#111_1px,transparent_1px)] bg-[size:40px_40px]"></div>
                     
-                    <div className="relative z-10 flex flex-col items-center gap-8 w-full">
+                    <div className="relative z-10 flex flex-col items-center gap-8 w-full max-w-4xl mx-auto">
+                      
                       {/* Top Level: Change */}
-                      <div className="flex justify-center w-full">
+                      <div className="flex justify-center w-full z-20">
                         <div className="px-4 py-2 bg-white text-black text-xs font-bold rounded-full border-2 border-white shadow-[0_0_15px_rgba(255,255,255,0.2)]">
                           Proposed Change
                         </div>
                       </div>
                       
-                      {/* Middle Level: Services */}
-                      <div className="flex justify-center gap-32 w-full relative">
-                        {/* Fake edges SVG */}
-                        <svg className="absolute inset-0 w-full h-full -z-10 overflow-visible pointer-events-none" style={{ top: '-40px' }}>
-                          <path d="M 50% 0 L 35% 40" stroke="#333" strokeWidth="2" fill="none" className="animate-pulse" />
-                          <path d="M 35% 80 C 35% 120, 65% 120, 65% 80" stroke="#ef4444" strokeWidth="2" strokeDasharray="4 4" fill="none" className="animate-[dash_1s_linear_infinite]" />
-                        </svg>
-
-                        <div className="px-4 py-2 bg-[#1a1a1a] text-white text-sm font-mono rounded border border-gray-600 shadow-lg flex items-center gap-2">
-                          <Box size={14} className="text-gray-400" /> OrderService
-                        </div>
-                        
-                        <div className="px-4 py-2 bg-red-950 text-red-200 text-sm font-mono rounded border border-red-700 shadow-lg flex items-center gap-2">
-                          <Box size={14} className="text-red-400" /> NotificationService
-                        </div>
+                      {/* Dynamic Nodes Wrapper */}
+                      <div className="flex flex-wrap justify-center gap-6 w-full relative z-20">
+                        {result.graph.nodes.filter((n: any) => n.type !== 'change').slice(0, 12).map((node: any) => {
+                          const isDoc = node.type === 'document';
+                          const isResource = node.type === 'resource';
+                          
+                          if (isDoc) {
+                            return (
+                              <div key={node.id} className="px-3 py-1.5 bg-[#0a0a0a] text-purple-400 text-xs font-mono rounded-full border border-purple-900/50 flex items-center gap-1.5 shadow-lg">
+                                <FileText size={12} /> {node.label}
+                              </div>
+                            );
+                          }
+                          if (isResource) {
+                            return (
+                              <div key={node.id} className="px-3 py-1.5 bg-[#0a0a0a] text-blue-400 text-xs font-mono rounded-full border border-blue-900/50 flex items-center gap-1.5 shadow-lg">
+                                <Database size={12} /> {node.label}
+                              </div>
+                            );
+                          }
+                          // Default: Service
+                          return (
+                            <div key={node.id} className="px-4 py-2 bg-[#1a1a1a] text-white text-sm font-mono rounded border border-gray-600 shadow-lg flex items-center gap-2">
+                              <Box size={14} className="text-gray-400" /> {node.label}
+                            </div>
+                          );
+                        })}
+                        {result.graph.nodes.length > 13 && (
+                          <div className="px-4 py-2 bg-[#111] text-gray-500 text-sm font-mono rounded border border-gray-800 border-dashed flex items-center gap-2">
+                            + {result.graph.nodes.length - 13} more
+                          </div>
+                        )}
                       </div>
 
-                      {/* Bottom Level: Resources / Invariants */}
-                      <div className="flex justify-center gap-16 w-full mt-4">
-                        <div className="px-3 py-1.5 bg-[#0a0a0a] text-blue-400 text-xs font-mono rounded-full border border-blue-900/50 flex items-center gap-1.5">
-                          <Database size={12} /> Redis (order-events)
-                        </div>
-                        <div className="px-3 py-1.5 bg-[#0a0a0a] text-purple-400 text-xs font-mono rounded-full border border-purple-900/50 flex items-center gap-1.5">
-                          <FileText size={12} /> ADR-012.md
-                        </div>
-                      </div>
                     </div>
                   </div>
                 )}

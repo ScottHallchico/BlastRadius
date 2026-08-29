@@ -1,8 +1,5 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { exec } from 'child_process';
-import util from 'util';
-const execAsync = util.promisify(exec);
 export class BlastRadiusEngine {
     repoPath;
     constructor(repoPath) {
@@ -19,74 +16,95 @@ export class BlastRadiusEngine {
         const edges = [];
         const lowerDesc = changeDesc.toLowerCase();
         try {
-            // Demo Scenario Fallback
-            if (lowerDesc.includes('redis') || lowerDesc.includes('publisher') || lowerDesc.includes('kafka')) {
+            // Demo Scenario Fallback - Only if path matches demo-repo EXACTLY
+            const isDemoMode = this.repoPath.endsWith('demo-repo');
+            if (isDemoMode && (lowerDesc.includes('redis') || lowerDesc.includes('publisher') || lowerDesc.includes('kafka'))) {
                 return this.runDemoScenario(changeDesc);
             }
-            // Real Repo Analysis via Grep (Simulating LatentForce MCP)
-            // Extract the core noun from the change description (naive extraction for demo)
-            const words = changeDesc.replace(/[^a-zA-Z0-9 ]/g, '').split(' ');
+            // Real Repo Analysis via Node FS API (Simulating LatentForce MCP)
+            const words = changeDesc.replace(/[^a-zA-Z0-9 -]/g, '').split(' ');
             const targetWord = words.find(w => w.length > 3 && !['replace', 'change', 'update', 'modify', 'delete', 'with', 'component'].includes(w.toLowerCase())) || words[0];
             if (targetWord) {
                 nodes.push({ id: 'target', label: targetWord, type: 'service' });
                 edges.push({ source: 'change', target: 'target', label: 'modifies', type: 'direct' });
-                // 1. Trace Explicit Dependencies (Imports)
-                try {
-                    const { stdout: importStdout } = await execAsync(`grep -rl "import.*${targetWord}" ${this.repoPath} | head -n 10 || true`);
-                    if (importStdout) {
-                        const files = importStdout.split('\n').filter(Boolean);
-                        files.forEach(f => {
-                            const fileName = path.basename(f);
-                            affectedComponents.add(fileName);
-                            nodes.push({ id: fileName, label: fileName, type: 'service' });
-                            edges.push({ source: 'target', target: fileName, label: 'imported by', type: 'direct' });
-                        });
+                // Try to find packages or src dir
+                const scanDirs = [
+                    path.join(this.repoPath, 'src'),
+                    path.join(this.repoPath, 'packages'),
+                    path.join(this.repoPath, 'docs'),
+                    path.join(this.repoPath, 'lib'),
+                    path.join(this.repoPath, 'components')
+                ];
+                let allFiles = [];
+                for (const d of scanDirs) {
+                    try {
+                        const files = await this.readDirRecursively(d, 500); // add limit back
+                        allFiles = allFiles.concat(files);
                     }
+                    catch (e) { }
                 }
-                catch (e) { }
-                // 2. Trace Implicit Runtime Dependencies (Events, Contexts, Providers)
-                try {
-                    const { stdout: runtimeStdout } = await execAsync(`grep -rnl -E "useContext.*${targetWord}|dispatch.*${targetWord}|emit.*${targetWord}" ${this.repoPath} | head -n 5 || true`);
-                    if (runtimeStdout) {
-                        const files = runtimeStdout.split('\n').filter(Boolean);
-                        files.forEach(f => {
-                            const fileName = path.basename(f);
-                            affectedComponents.add(fileName);
-                            implicitCouplings++;
-                            nodes.push({ id: fileName, label: fileName, type: 'service' });
-                            edges.push({ source: 'target', target: fileName, label: 'runtime coupling', type: 'runtime' });
-                            evidence.push({
-                                type: 'runtime',
-                                description: `Implicit runtime dependency detected for ${targetWord}`,
-                                target: fileName,
-                                confidence: 0.8,
-                                evidenceSource: path.relative(this.repoPath, f)
-                            });
-                        });
+                // If nothing found in standard dirs, scan the root repo path but limit it
+                if (allFiles.length === 0) {
+                    allFiles = await this.readDirRecursively(this.repoPath, 300);
+                }
+                for (const file of allFiles) {
+                    const ext = path.extname(file);
+                    const isDoc = ext === '.md' || ext === '.txt';
+                    const isCode = ['.ts', '.tsx', '.js', '.jsx'].includes(ext);
+                    if (!isDoc && !isCode)
+                        continue;
+                    try {
+                        const content = await fs.readFile(file, 'utf-8');
+                        const fileName = path.basename(file);
+                        const relPath = path.relative(this.repoPath, file);
+                        // 1. Explicit Dependencies
+                        if (isCode && new RegExp(`import.*${targetWord}`, 'i').test(content)) {
+                            if (affectedComponents.size < 15) { // Cap visualization nodes
+                                affectedComponents.add(fileName);
+                                if (!nodes.find(n => n.id === fileName)) {
+                                    nodes.push({ id: fileName, label: fileName, type: 'service' });
+                                }
+                                edges.push({ source: 'target', target: fileName, label: 'imported by', type: 'direct' });
+                            }
+                        }
+                        // 2. Implicit Runtime Dependencies
+                        if (isCode && new RegExp(`(useContext|dispatch|emit|Event|PubSub).*${targetWord}`, 'i').test(content)) {
+                            if (implicitCouplings < 5) {
+                                affectedComponents.add(fileName);
+                                implicitCouplings++;
+                                if (!nodes.find(n => n.id === fileName)) {
+                                    nodes.push({ id: fileName, label: fileName, type: 'service' });
+                                }
+                                edges.push({ source: 'target', target: fileName, label: 'runtime coupling', type: 'runtime' });
+                                evidence.push({
+                                    type: 'runtime',
+                                    description: `Implicit runtime dependency detected for ${targetWord}`,
+                                    target: fileName,
+                                    confidence: 0.8,
+                                    evidenceSource: relPath
+                                });
+                            }
+                        }
+                        // 3. Historical / Invariants
+                        if (isDoc && new RegExp(targetWord, 'i').test(content)) {
+                            if (invariantsViolated < 3) {
+                                invariantsViolated++;
+                                if (!nodes.find(n => n.id === fileName)) {
+                                    nodes.push({ id: fileName, label: fileName, type: 'document' });
+                                }
+                                edges.push({ source: 'target', target: fileName, label: 'documented in', type: 'invariant' });
+                                evidence.push({
+                                    type: 'history',
+                                    description: `Historical documentation references ${targetWord}`,
+                                    target: fileName,
+                                    confidence: 0.9,
+                                    evidenceSource: relPath
+                                });
+                            }
+                        }
                     }
+                    catch (e) { }
                 }
-                catch (e) { }
-                // 3. Trace Historical / Invariants (ADRs, Markdown Docs)
-                try {
-                    const { stdout: docStdout } = await execAsync(`grep -rnl "${targetWord}" ${this.repoPath} --include="*.md" | head -n 5 || true`);
-                    if (docStdout) {
-                        const files = docStdout.split('\n').filter(Boolean);
-                        files.forEach(f => {
-                            const fileName = path.basename(f);
-                            invariantsViolated++;
-                            nodes.push({ id: fileName, label: fileName, type: 'document' });
-                            edges.push({ source: 'target', target: fileName, label: 'documented in', type: 'invariant' });
-                            evidence.push({
-                                type: 'history',
-                                description: `Historical documentation references ${targetWord}`,
-                                target: fileName,
-                                confidence: 0.9,
-                                evidenceSource: path.relative(this.repoPath, f)
-                            });
-                        });
-                    }
-                }
-                catch (e) { }
             }
         }
         catch (e) {
@@ -219,15 +237,21 @@ export class BlastRadiusEngine {
             graph: { nodes, edges }
         };
     }
-    async readDirRecursively(dir) {
+    async readDirRecursively(dir, maxFiles = 1000) {
         let results = [];
         try {
             const list = await fs.readdir(dir);
             for (const file of list) {
+                if (results.length > maxFiles)
+                    break;
+                // Exclude large or irrelevant directories
+                if (['node_modules', 'dist', 'build', '.git', '.next', 'coverage', '.cache'].includes(file)) {
+                    continue;
+                }
                 const filePath = path.join(dir, file);
                 const stat = await fs.stat(filePath);
                 if (stat && stat.isDirectory()) {
-                    results = results.concat(await this.readDirRecursively(filePath));
+                    results = results.concat(await this.readDirRecursively(filePath, maxFiles - results.length));
                 }
                 else {
                     results.push(filePath);
