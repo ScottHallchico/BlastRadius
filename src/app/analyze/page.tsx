@@ -334,54 +334,14 @@ export default function Home() {
                 </div>
 
                 {/* Graph Visualization */}
-                {result.graph && result.graph.nodes && (
-                  <div className="p-8 border-b border-gray-800 bg-[#0a0a0a] min-h-[250px] flex items-center justify-center relative overflow-hidden">
-                    <div className="absolute inset-0 bg-[linear-gradient(to_right,#111_1px,transparent_1px),linear-gradient(to_bottom,#111_1px,transparent_1px)] bg-[size:40px_40px]"></div>
-                    
-                    <div className="relative z-10 flex flex-col items-center gap-8 w-full max-w-4xl mx-auto">
-                      
-                      {/* Top Level: Change */}
-                      <div className="flex justify-center w-full z-20">
-                        <div className="px-4 py-2 bg-white text-black text-xs font-bold rounded-full border-2 border-white shadow-[0_0_15px_rgba(255,255,255,0.2)]">
-                          Proposed Change
-                        </div>
-                      </div>
-                      
-                      {/* Dynamic Nodes Wrapper */}
-                      <div className="flex flex-wrap justify-center gap-6 w-full relative z-20">
-                        {result.graph.nodes.filter((n: any) => n.type !== 'change').slice(0, 12).map((node: any) => {
-                          const isDoc = node.type === 'document';
-                          const isResource = node.type === 'resource';
-                          
-                          if (isDoc) {
-                            return (
-                              <div key={node.id} className="px-3 py-1.5 bg-[#0a0a0a] text-purple-400 text-xs font-mono rounded-full border border-purple-900/50 flex items-center gap-1.5 shadow-lg">
-                                <FileText size={12} /> {node.label}
-                              </div>
-                            );
-                          }
-                          if (isResource) {
-                            return (
-                              <div key={node.id} className="px-3 py-1.5 bg-[#0a0a0a] text-blue-400 text-xs font-mono rounded-full border border-blue-900/50 flex items-center gap-1.5 shadow-lg">
-                                <Database size={12} /> {node.label}
-                              </div>
-                            );
-                          }
-                          // Default: Service
-                          return (
-                            <div key={node.id} className="px-4 py-2 bg-[#1a1a1a] text-white text-sm font-mono rounded border border-gray-600 shadow-lg flex items-center gap-2">
-                              <Box size={14} className="text-gray-400" /> {node.label}
-                            </div>
-                          );
-                        })}
-                        {result.graph.nodes.length > 13 && (
-                          <div className="px-4 py-2 bg-[#111] text-gray-500 text-sm font-mono rounded border border-gray-800 border-dashed flex items-center gap-2">
-                            + {result.graph.nodes.length - 13} more
-                          </div>
-                        )}
-                      </div>
-
-                    </div>
+                {result.graph && result.graph.nodes && result.graph.edges && (
+                  <div className="h-[500px] border-b border-gray-800 bg-[#0a0a0a] relative">
+                    <GraphView
+                      data={result.graph}
+                      onNodeSelect={(node: any) => {
+                        setSelectedNode(node);
+                      }}
+                    />
                   </div>
                 )}
 

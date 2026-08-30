@@ -54,22 +54,45 @@ export default function GraphView({ data, onNodeSelect }: { data: any, onNodeSel
   useEffect(() => {
     if (!data || !data.nodes) return;
 
-    // Simple auto layout (tree structure)
-    const levelMap: any = { change: 0, service: 1, resource: 2, document: 2 };
-    
-    const initialNodes = data.nodes.map((n: any, i: number) => {
-      const level = levelMap[n.type] ?? 1;
-      // Spread nodes horizontally based on index
-      const x = (i % 5) * 200 - 400;
-      const y = level * 150 + 50;
+    // Layered layout: change -> target -> affected components/documents
+    const changeNodes = data.nodes.filter((n: any) => n.type === 'change');
+    const targetNodes = data.nodes.filter((n: any) => n.id === 'target');
+    const otherNodes = data.nodes.filter((n: any) =>
+      n.type !== 'change' && n.id !== 'target'
+    );
+
+    const positionNode = (n: any, index: number) => {
+      if (n.type === 'change') {
+        return { x: 0, y: 0 };
+      }
+
+      if (n.id === 'target') {
+        return { x: 0, y: 180 };
+      }
+
+      // Arrange affected nodes in two rows to prevent overlap.
+      const columns = 5;
+      const column = index % columns;
+      const row = Math.floor(index / columns);
 
       return {
-        id: n.id,
-        type: 'customNode',
-        position: { x, y },
-        data: { ...n }
+        x: (column - (columns - 1) / 2) * 260,
+        y: 360 + row * 180
       };
-    });
+    };
+
+    const orderedNodes = [
+      ...changeNodes,
+      ...targetNodes,
+      ...otherNodes
+    ];
+
+    const initialNodes = orderedNodes.map((n: any, i: number) => ({
+      id: n.id,
+      type: 'customNode',
+      position: positionNode(n, i - changeNodes.length - targetNodes.length),
+      data: { ...n }
+    }));
 
     const initialEdges = data.edges.map((e: any, i: number) => {
       let stroke = '#333';
@@ -97,6 +120,13 @@ export default function GraphView({ data, onNodeSelect }: { data: any, onNodeSel
     setNodes(initialNodes);
     setEdges(initialEdges);
   }, [data]);
+
+  console.log('GRAPH INPUT:', {
+    inputNodes: data?.nodes?.length,
+    inputEdges: data?.edges?.length,
+    renderedNodes: nodes.length,
+    renderedEdges: edges.length
+});
 
   const onNodeClick = useCallback((_: any, node: any) => {
     onNodeSelect(node.data);

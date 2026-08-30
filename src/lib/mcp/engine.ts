@@ -138,11 +138,29 @@ export class BlastRadiusEngine {
                             
                             if (hasImport && hasPropertyMatch) {
                                 affectedComponents.add(fileName); // Track true count unbounded
-                                if (nodes.length < 25) { // Cap visualization nodes separately
+
+                                // Record dependency evidence independently of graph visualization limits.
+                                if (!evidence.some(e => e.type === 'dependency' && e.target === fileName)) {
+                                    evidence.push({
+                                        type: 'dependency',
+                                        description: `Direct source dependency on ${targetWord}`,
+                                        target: fileName,
+                                        confidence: 1.0,
+                                        evidenceSource: relPath
+                                    });
+                                }
+
+                                // Cap visualization nodes separately.
+                                if (nodes.length < 25) {
                                     if (!nodes.find(n => n.id === fileName)) {
                                         nodes.push({ id: fileName, label: fileName, type: 'service' });
                                     }
-                                    edges.push({ source: 'target', target: fileName, label: targetProperty ? `uses ${targetProperty}` : (isExported ? 'defines' : 'imported by'), type: 'direct' });
+                                    edges.push({
+                                        source: 'target',
+                                        target: fileName,
+                                        label: targetProperty ? `uses ${targetProperty}` : (isExported ? 'defines' : 'imported by'),
+                                        type: 'direct'
+                                    });
                                 }
                             }
                         }
@@ -154,7 +172,14 @@ export class BlastRadiusEngine {
                         if (isCode && !isSimpleUIChange) {
                             // Look for tight runtime binding, not just loose file co-occurrence
                             // E.g. `dispatch(Button)` or `useContext(ButtonContext)`
-                            if (new RegExp(`(useContext|dispatch|emit|Event|PubSub|subscribe|publish)\\s*[<\\(][^>\\)]*\\b${targetWord}\\b`, 'i').test(content)) {
+                            const runtimePatterns = [
+                                new RegExp(`\\b(useContext|dispatch|emit|publish|subscribe|send|produce|consume|on|once)\\s*[<\\(]\\s*[^>\\)]*\\b${targetWord}\\b`, 'i'),
+                                new RegExp(`\\b${targetWord}\\b[^\\n]{0,120}\\b(publish|subscribe|emit|dispatch|send|produce|consume|on|once)\\b`, 'i'),
+                                new RegExp(`\\b(publish|subscribe|emit|dispatch|send|produce|consume|on|once)\\b[^\\n]{0,120}\\b${targetWord}\\b`, 'i'),
+                                new RegExp(`\\b(${targetWord}|${targetContext || 'event'})\\b[^\\n]{0,100}(message|event|channel|topic|queue|stream)`, 'i')
+                            ];
+
+                            if (runtimePatterns.some(pattern => pattern.test(content))) {
                                 if (implicitCouplings < 5) {
                                     affectedComponents.add(fileName);
                                     implicitCouplings++;
@@ -197,14 +222,39 @@ export class BlastRadiusEngine {
                         
                         // 4. Renames & Replacements (Old references)
                         if (isCode && (spec.operation === 'RENAME' || spec.operation === 'REPLACE')) {
-                            // Does it reference the old name but NOT import it? (e.g. global usage, string refs)
-                            if (new RegExp(`\\b${targetWord}\\b`, 'i').test(content) && !new RegExp(`import.*\\b${targetWord}\\b`, 'i').test(content)) {
-                               if (affectedComponents.size < 15) {
-                                    affectedComponents.add(fileName);
+                            const hasOldSymbolReference =
+                                new RegExp(`\\b${targetWord}\\b`, 'i').test(content);
+
+                            if (hasOldSymbolReference) {
+                                affectedComponents.add(fileName);
+
+                                // Record every code-level reference as dependency evidence.
+                                if (!evidence.some(e => e.type === 'dependency' && e.target === fileName)) {
+                                    evidence.push({
+                                        type: 'dependency',
+                                        description: `Source code references ${targetWord}`,
+                                        target: fileName,
+                                        confidence: 0.9,
+                                        evidenceSource: relPath
+                                    });
+                                }
+
+                                // Keep visualization capped independently.
+                                if (nodes.length < 25) {
                                     if (!nodes.find(n => n.id === fileName)) {
-                                        nodes.push({ id: fileName, label: fileName, type: 'service' });
+                                        nodes.push({
+                                            id: fileName,
+                                            label: fileName,
+                                            type: 'service'
+                                        });
                                     }
-                                    edges.push({ source: 'target', target: fileName, label: 'references old symbol', type: 'direct' });
+
+                                    edges.push({
+                                        source: 'target',
+                                        target: fileName,
+                                        label: 'references old symbol',
+                                        type: 'direct'
+                                    });
                                 }
                             }
                         }
