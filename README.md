@@ -1,5 +1,7 @@
 # BlastRadius
 
+[Live Demo](https://blastradius-tau.vercel.app/)
+
 ![BlastRadius Landing Page](./Landing_page.png)
 
 An advanced engineering diagnostic tool built during the **LatentForce.ai BuildSprint**.
@@ -9,7 +11,7 @@ BlastRadius helps engineers answer one critical question before they ship:
 
 ---
 
-## 🛑 The Problem
+##  The Problem
 Standard static analysis tools and IDEs trace explicit source-level dependencies (like `import` statements). But in modern microservices and event-driven architectures, the most dangerous breakages occur at boundaries that static analysis misses:
 
 - **Implicit runtime couplings** (e.g., Redis Pub/Sub channels, React context dispatches, shared message queues).
@@ -17,7 +19,7 @@ Standard static analysis tools and IDEs trace explicit source-level dependencies
 - **Architectural invariants** documented in ADRs but not enforced in code.
 - **Historical engineering decisions**.
 
-## 🚀 The Solution
+##  The Solution
 BlastRadius operates an advanced Natural Language Change Parser coupled with a semantic analysis engine to perform structural investigations of any GitHub repository.
 
 ![BlastRadius Demo Interface](./DEMO_IMAGE.png)
@@ -31,7 +33,7 @@ When a change is proposed (e.g., *"Replace Redis event publisher with Kafka"*), 
 
 ---
 
-## 🛠️ Usage & Installation
+##  Usage & Installation
 
 BlastRadius can analyze real public GitHub repositories without requiring GitHub credentials, making it trivial to run locally.
 
@@ -61,7 +63,7 @@ Point the **Target Repository** to any real GitHub URL (e.g. `https://github.com
 
 ---
 
-## 🏗️ Architecture
+##  Architecture
 
 BlastRadius is built as a deployment-ready Next.js application, completely decoupled from `child_process` Git requirements for Vercel compatibility.
 
